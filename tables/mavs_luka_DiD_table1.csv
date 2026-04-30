@@ -1,0 +1,9 @@
+window_type,group,period,games,wins,losses
+calendar_symmetric,Control,Pre,888,441,447
+calendar_symmetric,Control,Post,943,470,473
+calendar_symmetric,Treatment (DAL),Pre,33,17,16
+calendar_symmetric,Treatment (DAL),Post,32,13,19
+game_symmetric,Control,Pre,525,256,269
+game_symmetric,Control,Post,519,259,260
+game_symmetric,Treatment (DAL),Pre,32,17,15
+game_symmetric,Treatment (DAL),Post,32,13,19
