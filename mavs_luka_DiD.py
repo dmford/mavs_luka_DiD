@@ -7,69 +7,19 @@
 # ==================================================
 
 # ==================================================
-# 0a. DEPENDENCY CHECK + AUTO-INSTALL
+# 0a. IMPORTS
 # ==================================================
-import importlib
-import subprocess
-import sys
-
-
-REQUIRED_LIBRARIES = {
-    "pandas": "pandas",
-    "numpy": "numpy",
-    "seaborn": "seaborn",
-    "statsmodels": "statsmodels",
-    "matplotlib": "matplotlib",
-    "nba_api": "nba_api"
-}
-
-
-def ensure_libraries_installed():
-    """
-    Checks whether required libraries are installed.
-    Installs missing libraries automatically via pip.
-    """
-    for import_name, pip_name in REQUIRED_LIBRARIES.items():
-        try:
-            importlib.import_module(import_name)
-
-        except ImportError:
-            print(f"Missing library detected: {pip_name}")
-            print(f"Installing {pip_name}...\n")
-
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pip_name]
-            )
-
-            print(f"{pip_name} installed successfully.\n")
-
-
-# Run dependency check before standard imports
-ensure_libraries_installed()
-
-
-# ==================================================
-# 0b. IMPORTS
-# ==================================================
-
-# Standard libraries
 import os
 from pathlib import Path
-
-# Data and analysis
-import numpy as np
 import pandas as pd
-import seaborn as sns
 import statsmodels.formula.api as smf
-from nba_api.stats.endpoints import leaguegamefinder
-
-# Tables and graphs
 import matplotlib.pyplot as plt
-from statsmodels.iolib.summary2 import summary_col
+
+from nba_api.stats.endpoints import leaguegamefinder
 
 
 # ==================================================
-# 0c. ENVIRONMENT SETUP
+# 0b. ENVIRONMENT SETUP
 # ==================================================
 def clear_terminal():
     """
@@ -80,25 +30,23 @@ def clear_terminal():
 
 
 # ==================================================
-# 0d. CONSTANTS
+# 0c. CONSTANTS
 # ==================================================
 TRADE_DATE = "2025-02-02"
 
-TABLE_DIR = "./tables"
-GRAPH_DIR = "./graphs"
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+TABLE_DIR = SCRIPT_DIR / "tables"
+FIGURE_DIR = SCRIPT_DIR / "figures"
 
 table_counter = 1
-graph_counter = 1
-
-# Known / placeholder injury dates.
-# These lists can be expanded as we verify additional missed games.
+figure_counter = 1
 
 LUKA_LEFT_EARLY_DATES = ["2024-12-25"]
 LUKA_MISSED_INJURY_DATES = []
 
 AD_MAVS_LEFT_EARLY_DATES = []
 AD_MAVS_MISSED_INJURY_DATES = []
-
 KYRIE_MAVS_LEFT_EARLY_DATES = []
 KYRIE_MAVS_MISSED_INJURY_DATES = []
 
@@ -141,20 +89,18 @@ def ensure_directories():
     """
     Creates output directories and clears old outputs for a fresh script run.
     """
-    os.makedirs(TABLE_DIR, exist_ok=True)
-    os.makedirs(GRAPH_DIR, exist_ok=True)
+    TABLE_DIR.mkdir(exist_ok=True)
+    FIGURE_DIR.mkdir(exist_ok=True)
 
-    for file in os.listdir(TABLE_DIR):
-        file_path = os.path.join(TABLE_DIR, file)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
+    for file in TABLE_DIR.iterdir():
+        if file.is_file():
+            file.unlink()
 
-    for file in os.listdir(GRAPH_DIR):
-        file_path = os.path.join(GRAPH_DIR, file)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
+    for file in FIGURE_DIR.iterdir():
+        if file.is_file():
+            file.unlink()
 
-    print("Old tables/graphs cleared. Starting fresh run...\n")
+    print("Old tables/figures cleared. Starting fresh run...\n")
 
 
 def get_next_table_path():
@@ -169,14 +115,14 @@ def get_next_table_path():
     return output_path
 
 
-def get_next_graph_path():
+def get_next_figure_path():
     """
-    Returns next sequential graph filename for current run.
+    Returns next sequential figure filename for current run.
     """
-    global graph_counter
+    global figure_counter
 
-    output_path = f"{GRAPH_DIR}/mavs_luka_DiD_graph{graph_counter}.png"
-    graph_counter += 1
+    output_path = FIGURE_DIR / f"mavs_luka_DiD_figure{figure_counter}.png"
+    figure_counter += 1
 
     return output_path
 
@@ -233,8 +179,7 @@ def clean_game_data(df):
     df["win"] = (df["WL"] == "W").astype(int)
     df["loss"] = (df["WL"] == "L").astype(int)
 
-    # Point differential
-    df["point_diff"] = df["PTS"] - df["PLUS_MINUS"] + df["PLUS_MINUS"]  # placeholder for readability
+    # Point differential from the team's perspective
     df["point_diff"] = df["PLUS_MINUS"]
 
     df = df[
@@ -328,9 +273,9 @@ def assign_treatment_control(df):
     df = df[~df["team_abbr"].isin(["LAL"])].copy()
 
     df["treated_team"] = (df["team_abbr"] == "DAL").astype(int)
-
+    
     # Injury flags for Dallas games.
-    # These are currently date-based flags and can be expanded as injury lists are updated.
+    # These are currently date-based and can be expanded as injury lists are updated.
     luka_injury_dates = pd.to_datetime(
         LUKA_LEFT_EARLY_DATES + LUKA_MISSED_INJURY_DATES
     )
@@ -436,61 +381,6 @@ def build_analysis_windows(df):
     return analysis_df
 
 
-def add_event_study_bins(df):
-    """
-    Creates binned event-study variables for both game-based and day-based timing.
-
-    Game bins are based on relative_game_num.
-    Calendar bins are based on relative_day_num.
-
-    These bins are useful for checking pre-trends and whether effects appear
-    immediately or gradually after the trade.
-    """
-    df = df.copy()
-
-    game_bins = [-999, -21, -11, -6, -1, 0, 5, 10, 20, 999]
-    game_labels = [
-        "g_leq_minus_21",
-        "g_minus_20_to_minus_11",
-        "g_minus_10_to_minus_6",
-        "g_minus_5_to_minus_1",
-        "g_trade_day",
-        "g_plus_1_to_plus_5",
-        "g_plus_6_to_plus_10",
-        "g_plus_11_to_plus_20",
-        "g_geq_plus_21",
-    ]
-
-    day_bins = [-999, -61, -31, -15, -1, 0, 14, 30, 60, 999]
-    day_labels = [
-        "d_leq_minus_61",
-        "d_minus_60_to_minus_31",
-        "d_minus_30_to_minus_15",
-        "d_minus_14_to_minus_1",
-        "d_trade_day",
-        "d_plus_1_to_plus_14",
-        "d_plus_15_to_plus_30",
-        "d_plus_31_to_plus_60",
-        "d_geq_plus_61",
-    ]
-
-    df["event_bin_game"] = pd.cut(
-        df["relative_game_num"],
-        bins=game_bins,
-        labels=game_labels,
-        include_lowest=True
-    )
-
-    df["event_bin_day"] = pd.cut(
-        df["relative_day_num"],
-        bins=day_bins,
-        labels=day_labels,
-        include_lowest=True
-    )
-
-    return df
-
-
 # ==================================================
 # 7. DATASET INSPECTION
 # ==================================================
@@ -518,12 +408,11 @@ def print_dataset_overview(df):
         "treated_team": "1 if Dallas Mavericks, 0 if control",
         "did": "treated_team * post_trade",
         "window_type": "game_symmetric or calendar_symmetric sample",
+        "point_diff": "Team point differential",
         "luka_injury_flag": "1 if Dallas game is flagged as Luka injury-related",
         "ad_injury_flag": "1 if Dallas game is flagged as AD injury-related",
         "kyrie_injury_flag": "1 if Dallas game is flagged as Kyrie injury-related",
         "any_mavs_star_injury_flag": "1 if Luka, AD, or Kyrie injury flag equals 1",
-        "event_bin_game": "Binned game-relative event-study timing",
-        "event_bin_day": "Binned calendar-relative event-study timing",
     }
 
     print("\n===== VARIABLE DESCRIPTIONS =====")
@@ -534,41 +423,50 @@ def print_dataset_overview(df):
 # ==================================================
 # 8. TABLE 1
 # ==================================================
-def create_table1(df):
+def create_descriptive_tables_by_window(df):
     """
-    Creates descriptive stats split by:
-        window type
+    Creates separate descriptive statistics tables for each window type.
+
+    Each table is split by:
         treatment/control
         pre/post
     """
-    summary = (
-        df.groupby(["window_type", "treated_team", "post_trade"])
-        .agg(
-            games=("game_id", "count"),
-            wins=("win", "sum"),
-            losses=("loss", "sum")
+    tables = {}
+
+    for window_type in sorted(df["window_type"].unique()):
+        window_df = df[df["window_type"] == window_type].copy()
+
+        summary = (
+            window_df.groupby(["treated_team", "post_trade"])
+            .agg(
+                games=("game_id", "count"),
+                wins=("win", "sum"),
+                losses=("loss", "sum"),
+                avg_point_diff=("point_diff", "mean")
+            )
+            .reset_index()
         )
-        .reset_index()
-    )
 
-    summary["group"] = summary["treated_team"].map(
-        {1: "Treatment (DAL)", 0: "Control"}
-    )
+        summary["group"] = summary["treated_team"].map(
+            {1: "Treatment (DAL)", 0: "Control"}
+        )
 
-    summary["period"] = summary["post_trade"].map(
-        {1: "Post", 0: "Pre"}
-    )
+        summary["period"] = summary["post_trade"].map(
+            {1: "Post", 0: "Pre"}
+        )
 
-    summary = summary[
-        ["window_type", "group", "period", "games", "wins", "losses"]
-    ]
+        summary = summary[
+            ["group", "period", "games", "wins", "losses", "avg_point_diff"]
+        ]
 
-    output_path = get_next_table_path()
-    summary.to_csv(output_path, index=False)
+        output_path = get_next_table_path()
+        summary.to_csv(output_path, index=False)
 
-    print(f"\nTable 1 saved to: {output_path}")
+        print(f"\nDescriptive statistics table saved for {window_type}: {output_path}")
 
-    return summary
+        tables[window_type] = summary
+
+    return tables
 
 
 # ==================================================
@@ -619,28 +517,23 @@ def run_did_regression(
 # ==================================================
 # 10. REGRESSION TABLES
 # ==================================================
-def create_table2_did_results(df):
+def create_did_results_tables_by_window(df):
     """
-    Runs multiple DiD specifications:
-        Outcomes:
-            win
-            point_diff
+    Runs DiD regressions separately by window type and saves one results table
+    per window type.
 
-        Specs:
-            no controls
-            with controls
-
-        Windows:
-            game_symmetric
-            calendar_symmetric
+    Each table includes:
+        outcomes: win, point_diff
+        specifications: no controls, with controls
     """
-    results = []
+    tables = {}
 
     for window_type in sorted(df["window_type"].unique()):
         window_df = df[df["window_type"] == window_type].copy()
 
-        for outcome_var in ["win", "point_diff"]:
+        results = []
 
+        for outcome_var in ["win", "point_diff"]:
             for use_controls in [False, True]:
 
                 model = run_did_regression(
@@ -650,7 +543,6 @@ def create_table2_did_results(df):
                 )
 
                 results.append({
-                    "window_type": window_type,
                     "outcome": outcome_var,
                     "controls": "with_controls" if use_controls else "no_controls",
                     "did_estimate": model.params["did"],
@@ -661,32 +553,119 @@ def create_table2_did_results(df):
                     "r_squared": model.rsquared
                 })
 
-    table2 = pd.DataFrame(results)
+        results_table = pd.DataFrame(results)
 
-    table2 = table2[
-        [
-            "window_type",
-            "outcome",
-            "controls",
-            "did_estimate",
-            "did_std_error",
-            "did_t_stat",
-            "did_p_value",
-            "n_observations",
-            "r_squared"
+        results_table = results_table[
+            [
+                "outcome",
+                "controls",
+                "did_estimate",
+                "did_std_error",
+                "did_t_stat",
+                "did_p_value",
+                "n_observations",
+                "r_squared"
+            ]
         ]
-    ]
 
-    output_path = get_next_table_path()
-    table2.to_csv(output_path, index=False)
+        output_path = get_next_table_path()
+        results_table.to_csv(output_path, index=False)
 
-    print(f"\nDiD results table saved to: {output_path}")
+        print(f"\nDiD results table saved for {window_type}: {output_path}")
 
-    return table2
+        tables[window_type] = results_table
+
+    return tables
 
 
 # ==================================================
-# 11. MAIN
+# 11. FIGURE HELPERS
+# ==================================================
+def create_point_diff_figures_by_window(df):
+    """
+    Creates point differential scatterplots separately for:
+        calendar_symmetric
+        game_symmetric
+
+    Each graph shows:
+        - Dallas observations
+        - Control observations
+        - Horizontal line at point_diff = 0
+        - Vertical line at trade timing = 0
+    """
+    for window_type in sorted(df["window_type"].unique()):
+        print(f"\nCreating figure for: {window_type}")
+
+        window_df = df[df["window_type"] == window_type].copy()
+
+        if window_type == "calendar_symmetric":
+            x_var = "relative_day_num"
+            x_label = "Days Relative to Trade"
+            title = "Point Differential Around Trade: Calendar-Symmetric Window"
+
+        elif window_type == "game_symmetric":
+            x_var = "relative_game_num"
+            x_label = "Games Relative to Trade"
+            title = "Point Differential Around Trade: Game-Symmetric Window"
+
+        else:
+            continue
+
+        treatment_df = window_df[window_df["treated_team"] == 1]
+        control_df = window_df[window_df["treated_team"] == 0]
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Control teams (muted grey)
+        ax.scatter(
+            control_df[x_var],
+            control_df["point_diff"],
+            alpha=0.15,
+            color="gray",
+            label="Control teams"
+        )
+
+        # Dallas Mavericks (team blue)
+        ax.scatter(
+            treatment_df[x_var],
+            treatment_df["point_diff"],
+            alpha=0.9,
+            color="#00538C",  # Mavericks blue
+            label="Dallas Mavericks"
+        )
+
+        ax.axhline(
+            y=0,
+            linestyle="--",
+            linewidth=1
+        )
+
+        ax.axvline(
+            x=0,
+            linestyle="--",
+            linewidth=1
+        )
+
+        ax.set_title(title)
+        ax.set_xlabel(x_label)
+        ax.set_ylabel("Point Differential")
+        ax.legend()
+
+        plt.tight_layout()
+
+        output_path = get_next_figure_path()
+        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+
+        print(f"\nPoint differential figure saved for {window_type}: {output_path}")
+
+        # Do not call plt.show() inside the loop, or the first graph blocks the second.
+
+    # Show all created figures at once after both have been created.
+    plt.show()
+
+
+# ==================================================
+# 12. MAIN
 # ==================================================
 def main():
     clear_terminal()
@@ -702,18 +681,24 @@ def main():
     df = add_relative_game_num(df, treated_team="DAL")
 
     analysis_df = build_analysis_windows(df)
-    analysis_df = add_event_study_bins(analysis_df)
 
     print_dataset_overview(analysis_df)
 
-    table1 = create_table1(analysis_df)
-    did_results = create_table2_did_results(analysis_df)
+    descriptive_tables = create_descriptive_tables_by_window(analysis_df)
+    did_results_tables = create_did_results_tables_by_window(analysis_df)
+    create_point_diff_figures_by_window(analysis_df)
 
-    print("\n===== DESCRIPTIVE STATISTICS =====")
-    print(table1)
+    print("\n===== DESCRIPTIVE STATISTICS BY WINDOW =====")
+    for window_type, table in descriptive_tables.items():
+        print(f"\n--- {window_type} ---")
+        print(table)
 
-    print("\n===== NAIVE DID RESULTS =====")
-    print(did_results)
+    print("\n===== NAIVE DID RESULTS BY WINDOW =====")
+    for window_type, table in did_results_tables.items():
+        print(f"\n--- {window_type} ---")
+        print(table)
 
 if __name__ == "__main__":
     main()
+
+
