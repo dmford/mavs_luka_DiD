@@ -54,35 +54,6 @@ AD_TRADED_AWAY_FROM_MAVS_DATE = "2026-02-06"
 
 
 # ==================================================
-# 0d. DESIGN NOTES
-# ==================================================
-"""
-This is a deliberately naive Difference-in-Differences setup.
-
-Main outcome:
-    win = 1 if team won the game, 0 otherwise
-
-Current focal comparison:
-    Dallas Mavericks before/after trading away Luka Doncic and receiving
-    Anthony Davis.
-
-Control group:
-    All NBA teams except the Lakers, since Luka was traded to the Lakers.
-
-Major confounders intentionally ignored for now:
-    - Other roster changes
-    - Kyrie Irving availability
-    - Strength of schedule
-    - Home/away games
-    - Back-to-backs and rest days
-    - Other injuries
-    - Coaching/strategy changes
-    - Tanking/playoff incentives
-    - The fact that the Luka and AD treatments are mechanically linked
-"""
-
-
-# ==================================================
 # 1. OUTPUT DIRECTORY SETUP
 # ==================================================
 def ensure_directories():
@@ -380,6 +351,56 @@ def build_analysis_windows(df):
 
     return analysis_df
 
+def add_event_study_bins(df):
+    """
+    Adds event-study bins for game-relative and calendar-relative timing.
+    """
+    df = df.copy()
+
+    game_bins = [-999, -21, -11, -6, -1, 0, 5, 10, 20, 999]
+    game_labels = [
+        "g_leq_minus_21",
+        "g_minus_20_to_minus_11",
+        "g_minus_10_to_minus_6",
+        "g_minus_5_to_minus_1",
+        "g_trade_day",
+        "g_plus_1_to_plus_5",
+        "g_plus_6_to_plus_10",
+        "g_plus_11_to_plus_20",
+        "g_geq_plus_21",
+    ]
+
+    day_bins = [-999, -57, -43, -29, -15, -1, 0, 14, 28, 42, 56, 999]
+    day_labels = [
+        "d_leq_minus_57",
+        "d_minus_56_to_minus_43",
+        "d_minus_42_to_minus_29",
+        "d_minus_28_to_minus_15",
+        "d_minus_14_to_minus_1",
+        "d_trade_day",
+        "d_plus_1_to_plus_14",
+        "d_plus_15_to_plus_28",
+        "d_plus_29_to_plus_42",
+        "d_plus_43_to_plus_56",
+        "d_geq_plus_57",
+    ]
+
+    df["event_bin_game"] = pd.cut(
+        df["relative_game_num"],
+        bins=game_bins,
+        labels=game_labels,
+        include_lowest=True
+    )
+
+    df["event_bin_day"] = pd.cut(
+        df["relative_day_num"],
+        bins=day_bins,
+        labels=day_labels,
+        include_lowest=True
+    )
+
+    return df
+
 
 # ==================================================
 # 7. DATASET INSPECTION
@@ -413,6 +434,8 @@ def print_dataset_overview(df):
         "ad_injury_flag": "1 if Dallas game is flagged as AD injury-related",
         "kyrie_injury_flag": "1 if Dallas game is flagged as Kyrie injury-related",
         "any_mavs_star_injury_flag": "1 if Luka, AD, or Kyrie injury flag equals 1",
+        "event_bin_game": "Binned game-relative event-study timing",
+        "event_bin_day": "Binned calendar-relative event-study timing",
     }
 
     print("\n===== VARIABLE DESCRIPTIONS =====")
@@ -513,6 +536,71 @@ def run_did_regression(
 
     return model
 
+def run_event_study_regression(df, window_type):
+    """
+    Runs event-study regression for a given window type.
+    """
+    df = df.copy()
+    df = df[df["window_type"] == window_type].copy()
+
+    if window_type == "game_symmetric":
+        event_var = "event_bin_game"
+        baseline = "g_minus_5_to_minus_1"
+    else:
+        event_var = "event_bin_day"
+        baseline = "d_minus_14_to_minus_1"
+
+    # Set omitted baseline category.
+    # Patsy/statsmodels uses the FIRST category as the omitted reference group.
+    df[event_var] = df[event_var].astype("category")
+
+    ordered_categories = [baseline] + [
+        cat for cat in df[event_var].cat.categories
+        if cat != baseline
+    ]
+
+    df[event_var] = df[event_var].cat.reorder_categories(
+        ordered_categories,
+        ordered=True
+    )
+
+    formula = (
+        f"point_diff ~ C({event_var}) * treated_team "
+        f"+ C(team_abbr)"
+    )
+
+    model = smf.ols(
+        formula=formula,
+        data=df
+    ).fit(
+        cov_type="cluster",
+        cov_kwds={"groups": df["team_abbr"]}
+    )
+
+    return model, event_var
+
+def extract_event_study_coefficients(model, event_var):
+    """
+    Extracts event-study interaction coefficients and cleans bin labels.
+    """
+    results = []
+
+    for name, coef in model.params.items():
+
+        if f"{event_var}" in name and "treated_team" in name:
+
+            # Statsmodels names interaction terms like:
+            # C(event_bin_game)[T.g_plus_1_to_plus_5]:treated_team
+            bin_label = name.split("[T.")[1].split("]")[0]
+
+            results.append({
+                "bin": bin_label,
+                "coef": coef,
+                "se": model.bse[name]
+            })
+
+    return pd.DataFrame(results)
+
 
 # ==================================================
 # 10. REGRESSION TABLES
@@ -577,10 +665,154 @@ def create_did_results_tables_by_window(df):
 
     return tables
 
+def create_event_study_summary_tables(df):
+    """
+    Creates event-study summary tables for game-relative and calendar-relative bins.
+    """
+    tables = {}
+
+    specs = {
+        "calendar_symmetric": "event_bin_day",
+        "game_symmetric": "event_bin_game",
+    }
+
+    for window_type, event_bin_var in specs.items():
+        window_df = df[df["window_type"] == window_type].copy()
+
+        summary = (
+            window_df.groupby([event_bin_var, "treated_team"], observed=False)
+            .agg(
+                games=("game_id", "count"),
+                wins=("win", "sum"),
+                losses=("loss", "sum"),
+                avg_point_diff=("point_diff", "mean")
+            )
+            .reset_index()
+        )
+
+        summary["group"] = summary["treated_team"].map(
+            {1: "Treatment (DAL)", 0: "Control"}
+        )
+
+        summary["event_bin_label"] = summary[event_bin_var].astype(str).map(
+            get_event_bin_labels(window_type)
+        )
+
+        # Drop trade-day bin from event-study summary table.
+        summary = summary[summary["event_bin_label"] != "Trade day"].copy()
+
+        summary = summary[
+            ["event_bin_label", "group", "games", "wins", "losses", "avg_point_diff"]
+        ]
+
+        output_path = get_next_table_path()
+        summary.to_csv(output_path, index=False)
+
+        print(f"\nEvent-study summary table saved for {window_type}: {output_path}")
+
+        tables[window_type] = summary
+
+    return tables
+
 
 # ==================================================
 # 11. FIGURE HELPERS
 # ==================================================
+def get_event_bin_midpoints(window_type):
+    """
+    Returns numeric midpoint values for event-study bins.
+    Used only for cleaner event-study figure x-axes.
+    """
+    if window_type == "game_symmetric":
+        return {
+            "g_leq_minus_21": -25,
+            "g_minus_20_to_minus_11": -15,
+            "g_minus_10_to_minus_6": -8,
+            "g_minus_5_to_minus_1": -3,
+            "g_trade_day": 0,
+            "g_plus_1_to_plus_5": 3,
+            "g_plus_6_to_plus_10": 8,
+            "g_plus_11_to_plus_20": 15,
+            "g_geq_plus_21": 25,
+        }
+
+    return {
+        "d_leq_minus_57": -63,
+        "d_minus_56_to_minus_43": -49,
+        "d_minus_42_to_minus_29": -35,
+        "d_minus_28_to_minus_15": -21,
+        "d_minus_14_to_minus_1": -7,
+        "d_trade_day": 0,
+        "d_plus_1_to_plus_14": 7,
+        "d_plus_15_to_plus_28": 21,
+        "d_plus_29_to_plus_42": 35,
+        "d_plus_43_to_plus_56": 49,
+        "d_geq_plus_57": 63,
+    }
+
+def get_event_bin_labels(window_type):
+    """
+    Returns human-readable labels for event-study bins.
+    """
+    if window_type == "game_symmetric":
+        return {
+            "g_leq_minus_21": "≤ -21 games",
+            "g_minus_20_to_minus_11": "-20 to -11 games",
+            "g_minus_10_to_minus_6": "-10 to -6 games",
+            "g_minus_5_to_minus_1": "-5 to -1 games",
+            "g_trade_day": "Trade day",
+            "g_plus_1_to_plus_5": "+1 to +5 games",
+            "g_plus_6_to_plus_10": "+6 to +10 games",
+            "g_plus_11_to_plus_20": "+11 to +20 games",
+            "g_geq_plus_21": "≥ +21 games",
+        }
+
+    return {
+        "d_leq_minus_57": "≤ -57 days",
+        "d_minus_56_to_minus_43": "-56 to -43 days",
+        "d_minus_42_to_minus_29": "-42 to -29 days",
+        "d_minus_28_to_minus_15": "-28 to -15 days",
+        "d_minus_14_to_minus_1": "-14 to -1 days",
+        "d_trade_day": "Trade day",
+        "d_plus_1_to_plus_14": "+1 to +14 days",
+        "d_plus_15_to_plus_28": "+15 to +28 days",
+        "d_plus_29_to_plus_42": "+29 to +42 days",
+        "d_plus_43_to_plus_56": "+43 to +56 days",
+        "d_geq_plus_57": "≥ +57 days",
+    }
+
+def get_event_bin_short_labels(window_type):
+    """
+    Returns simplified labels for event-study plots.
+    Labels use the endpoint farthest from the trade date.
+    """
+    if window_type == "game_symmetric":
+        return {
+            "g_leq_minus_21": "≤-21",
+            "g_minus_20_to_minus_11": "-20",
+            "g_minus_10_to_minus_6": "-10",
+            "g_minus_5_to_minus_1": "-5",
+            "g_trade_day": "0",
+            "g_plus_1_to_plus_5": "+5",
+            "g_plus_6_to_plus_10": "+10",
+            "g_plus_11_to_plus_20": "+20",
+            "g_geq_plus_21": "≥+21",
+        }
+
+    return {
+        "d_leq_minus_57": "≤-57",
+        "d_minus_56_to_minus_43": "-56",
+        "d_minus_42_to_minus_29": "-42",
+        "d_minus_28_to_minus_15": "-28",
+        "d_minus_14_to_minus_1": "-14",
+        "d_trade_day": "0",
+        "d_plus_1_to_plus_14": "+14",
+        "d_plus_15_to_plus_28": "+28",
+        "d_plus_29_to_plus_42": "+42",
+        "d_plus_43_to_plus_56": "+56",
+        "d_geq_plus_57": "≥+57",
+    }
+
 def create_point_diff_figures_by_window(df):
     """
     Creates point differential scatterplots separately for:
@@ -660,8 +892,167 @@ def create_point_diff_figures_by_window(df):
 
         # Do not call plt.show() inside the loop, or the first graph blocks the second.
 
-    # Show all created figures at once after both have been created.
-    plt.show()
+def create_event_study_plots(df):
+    """
+    Creates event-study coefficient plots for both window types.
+    Uses numeric bin midpoints for clean x-axis labels.
+    """
+    for window_type in ["game_symmetric", "calendar_symmetric"]:
+
+        model, event_var = run_event_study_regression(df, window_type)
+        coef_df = extract_event_study_coefficients(model, event_var)
+
+        if window_type == "game_symmetric":
+            baseline_bin = "g_minus_5_to_minus_1"
+        else:
+            baseline_bin = "d_minus_14_to_minus_1"
+
+        baseline_row = pd.DataFrame([{
+            "bin": baseline_bin,
+            "coef": 0,
+            "se": 0
+        }])
+
+        coef_df = pd.concat(
+            [coef_df, baseline_row],
+            ignore_index=True
+        )
+
+        coef_df["x"] = coef_df["bin"].map(
+            get_event_bin_midpoints(window_type)
+        )
+
+        coef_df["event_bin_label"] = coef_df["bin"].map(
+            get_event_bin_short_labels(window_type)
+        )
+
+        coef_df = coef_df.sort_values("x")
+
+        # Drop trade-day bin from figure.
+        coef_df = coef_df[coef_df["event_bin_label"] != "0"].copy()
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        ax.errorbar(
+            x=coef_df["x"],
+            y=coef_df["coef"],
+            yerr=1.96 * coef_df["se"],
+            fmt="o",
+            capsize=4,
+            linewidth=1.5
+        )
+
+        ax.set_xlim(coef_df["x"].min() - 5, coef_df["x"].max() + 5)
+
+        ax.axhline(
+            y=0,
+            linestyle="--",
+            linewidth=1,
+            alpha=0.6
+        )
+
+        ax.axvline(
+            x=0,
+            linestyle="--",
+            linewidth=1,
+            alpha=0.6
+        )
+
+        if window_type == "game_symmetric":
+            x_label = "Games Relative to Trade"
+            title = "Event Study: Game-Symmetric Window"
+        else:
+            x_label = "Days Relative to Trade"
+            title = "Event Study: Calendar-Symmetric Window"
+
+        ax.set_title(
+            title + "\nRelative to final pre-trade bin"
+        )
+
+        ax.set_xlabel(f"{x_label} (Binned; labels show bin start)")
+        ax.set_ylabel("Effect on Point Differential")
+
+        ax.grid(
+            axis="y",
+            linestyle=":",
+            linewidth=0.8,
+            alpha=0.6
+        )
+
+        ax.set_xticks(coef_df["x"])
+        ax.set_xticklabels(
+            coef_df["event_bin_label"],
+            rotation=0,
+            ha="center"
+        )
+
+        y_min = coef_df["coef"].min() - 5
+        y_max = coef_df["coef"].max() + 5
+        ax.set_ylim(y_min, y_max)
+
+        plt.tight_layout()
+
+        output_path = get_next_figure_path()
+        fig.savefig(output_path, dpi=300, bbox_inches="tight")
+
+        print(f"\nEvent-study figure saved for {window_type}: {output_path}")
+
+def create_event_study_coefficient_tables(df):
+    """
+    Saves event-study coefficient tables for both window types.
+    Includes the omitted baseline bin as coef = 0.
+    """
+    tables = {}
+
+    for window_type in ["game_symmetric", "calendar_symmetric"]:
+
+        model, event_var = run_event_study_regression(df, window_type)
+        coef_df = extract_event_study_coefficients(model, event_var)
+
+        if window_type == "game_symmetric":
+            baseline_bin = "g_minus_5_to_minus_1"
+        else:
+            baseline_bin = "d_minus_14_to_minus_1"
+
+        baseline_row = pd.DataFrame([{
+            "bin": baseline_bin,
+            "coef": 0,
+            "se": 0,
+        }])
+
+        coef_df = pd.concat(
+            [coef_df, baseline_row],
+            ignore_index=True
+        )
+
+        coef_df["x"] = coef_df["bin"].map(
+            get_event_bin_midpoints(window_type)
+        )
+
+        coef_df["event_bin_label"] = coef_df["bin"].map(
+            get_event_bin_labels(window_type)
+        )
+
+        coef_df["ci_lower"] = coef_df["coef"] - 1.96 * coef_df["se"]
+        coef_df["ci_upper"] = coef_df["coef"] + 1.96 * coef_df["se"]
+
+        coef_df = coef_df.sort_values("x")
+
+        # Drop trade-day bin from saved coefficient table.
+        coef_df = coef_df[coef_df["event_bin_label"] != "Trade day"].copy()
+
+        coef_df = coef_df[
+            ["event_bin_label", "x", "coef", "se", "ci_lower", "ci_upper"]
+        ]
+
+        output_path = get_next_table_path()
+        coef_df.to_csv(output_path, index=False)
+
+        print(f"\nEvent-study coefficient table saved for {window_type}: {output_path}")
+
+        tables[window_type] = coef_df
+
+    return tables
 
 
 # ==================================================
@@ -681,12 +1072,18 @@ def main():
     df = add_relative_game_num(df, treated_team="DAL")
 
     analysis_df = build_analysis_windows(df)
+    analysis_df = add_event_study_bins(analysis_df)
 
     print_dataset_overview(analysis_df)
 
     descriptive_tables = create_descriptive_tables_by_window(analysis_df)
     did_results_tables = create_did_results_tables_by_window(analysis_df)
+
+    event_study_summary_tables = create_event_study_summary_tables(analysis_df)
+    event_study_coefficient_tables = create_event_study_coefficient_tables(analysis_df)
+
     create_point_diff_figures_by_window(analysis_df)
+    create_event_study_plots(analysis_df)
 
     print("\n===== DESCRIPTIVE STATISTICS BY WINDOW =====")
     for window_type, table in descriptive_tables.items():
@@ -698,7 +1095,17 @@ def main():
         print(f"\n--- {window_type} ---")
         print(table)
 
+    print("\n===== EVENT-STUDY SUMMARY TABLES =====")
+    for window_type, table in event_study_summary_tables.items():
+        print(f"\n--- {window_type} ---")
+        print(table)
+
+    print("\n===== EVENT-STUDY COEFFICIENT TABLES =====")
+    for window_type, table in event_study_coefficient_tables.items():
+        print(f"\n--- {window_type} ---")
+        print(table)
+
+    plt.show()
+
 if __name__ == "__main__":
     main()
-
-
