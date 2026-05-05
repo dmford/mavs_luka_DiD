@@ -42,15 +42,76 @@ FIGURE_DIR = SCRIPT_DIR / "figures"
 table_counter = 1
 figure_counter = 1
 
-LUKA_LEFT_EARLY_DATES = ["2024-12-25"]
-LUKA_MISSED_INJURY_DATES = []
+LUKA_MISSED_INJURY_DATES = [
+    "2024-11-17",
+    "2024-11-22",
+    "2024-11-24",
+    "2024-11-25",
+    "2024-11-27",
+    "2024-11-30",
+    "2024-12-19",
+    "2024-12-21",
+    "2024-12-27",
+    "2024-12-28",
+    "2024-12-30",
+    "2025-01-01",
+    "2025-01-03",
+    "2025-01-06",
+    "2025-01-07",
+    "2025-01-09",
+    "2025-01-12",
+    "2025-01-14",
+    "2025-01-15",
+    "2025-01-17",
+    "2025-01-20",
+    "2025-01-22",
+    "2025-01-23",
+    "2025-01-25",
+    "2025-01-27",
+    "2025-01-29",
+    "2025-01-31",
+]
 
-AD_MAVS_LEFT_EARLY_DATES = []
-AD_MAVS_MISSED_INJURY_DATES = []
-KYRIE_MAVS_LEFT_EARLY_DATES = []
-KYRIE_MAVS_MISSED_INJURY_DATES = []
+AD_MAVS_MISSED_INJURY_DATES = [
+    "2025-02-04",
+    "2025-02-06",
+    "2025-02-10",
+    "2025-02-12",
+    "2025-02-13",
+    "2025-02-21",
+    "2025-02-23",
+    "2025-02-25",
+    "2025-02-27",
+]
 
-AD_TRADED_AWAY_FROM_MAVS_DATE = "2026-02-06"
+KYRIE_MAVS_MISSED_INJURY_DATES = [
+    "2024-12-01",
+    "2024-12-19",
+    "2025-01-03",
+    "2025-01-06",
+    "2025-01-07",
+    "2025-01-09",
+    "2025-01-12",
+    "2025-01-15",
+    "2025-03-05",
+    "2025-03-07",
+    "2025-03-09",
+    "2025-03-10",
+    "2025-03-12",
+    "2025-03-14",
+    "2025-03-16",
+    "2025-03-19",
+    "2025-03-21",
+    "2025-03-24",
+    "2025-03-25",
+    "2025-03-27",
+    "2025-03-29",
+    "2025-03-31",
+    "2025-04-04",
+    "2025-04-05",
+    "2025-04-09",
+    "2025-04-13",
+]
 
 
 # ==================================================
@@ -166,6 +227,20 @@ def clean_game_data(df):
         ]
     ].rename(columns={"GAME_ID": "game_id"})
 
+    # --------------------------------------------------
+    # BACK-TO-BACK (B2B) INDICATOR
+    # --------------------------------------------------
+
+    df = df.sort_values(["team_abbr", "game_date"])
+
+    df["days_since_last_game"] = (
+        df.groupby("team_abbr")["game_date"]
+        .diff()
+        .dt.days
+    )
+
+    df["is_back_to_back"] = (df["days_since_last_game"] == 1).astype(int)
+    
     return df
 
 
@@ -246,17 +321,17 @@ def assign_treatment_control(df):
     df["treated_team"] = (df["team_abbr"] == "DAL").astype(int)
     
     # Injury flags for Dallas games.
-    # These are currently date-based and can be expanded as injury lists are updated.
+    # Luka is used only pre-trade, AD only post-trade, and Kyrie across all periods.
     luka_injury_dates = pd.to_datetime(
-        LUKA_LEFT_EARLY_DATES + LUKA_MISSED_INJURY_DATES
+        LUKA_MISSED_INJURY_DATES
     )
 
     ad_injury_dates = pd.to_datetime(
-        AD_MAVS_LEFT_EARLY_DATES + AD_MAVS_MISSED_INJURY_DATES
+        AD_MAVS_MISSED_INJURY_DATES
     )
 
     kyrie_injury_dates = pd.to_datetime(
-        KYRIE_MAVS_LEFT_EARLY_DATES + KYRIE_MAVS_MISSED_INJURY_DATES
+        KYRIE_MAVS_MISSED_INJURY_DATES
     )
 
     df["luka_injury_flag"] = (
@@ -280,6 +355,11 @@ def assign_treatment_control(df):
         | (df["kyrie_injury_flag"] == 1)
     ).astype(int)
 
+    df["pre_trade"] = 1 - df["post_trade"]
+
+    df["luka_injury_pre"] = df["luka_injury_flag"] * df["pre_trade"]
+    df["ad_injury_post"] = df["ad_injury_flag"] * df["post_trade"]
+
     df["did"] = df["treated_team"] * df["post_trade"]
 
     return df
@@ -288,7 +368,7 @@ def assign_treatment_control(df):
 # ==================================================
 # 6. SYMMETRIC WINDOW HELPERS
 # ==================================================
-def make_game_symmetric_window(df):
+def make_main_game_symmetric_window(df):
     """
     Keeps games within a symmetric pre/post window based on the treated team's
     available post-trade games.
@@ -308,12 +388,12 @@ def make_game_symmetric_window(df):
         & (df["relative_game_num"] != 0)
     ].copy()
 
-    window_df["window_type"] = "game_symmetric"
+    window_df["window_type"] = "main_game_symmetric"
 
     return window_df
 
 
-def make_calendar_symmetric_window(df):
+def make_robust_calendar_symmetric_window(df):
     """
     Keeps games within a symmetric pre/post window based on calendar days.
     """
@@ -332,7 +412,7 @@ def make_calendar_symmetric_window(df):
         & (df["relative_day_num"] != 0)
     ].copy()
 
-    window_df["window_type"] = "calendar_symmetric"
+    window_df["window_type"] = "robust_calendar_symmetric"
 
     return window_df
 
@@ -341,8 +421,8 @@ def build_analysis_windows(df):
     """
     Creates both symmetric analysis datasets and stacks them together.
     """
-    game_window = make_game_symmetric_window(df)
-    calendar_window = make_calendar_symmetric_window(df)
+    game_window = make_main_game_symmetric_window(df)
+    calendar_window = make_robust_calendar_symmetric_window(df)
 
     analysis_df = pd.concat(
         [game_window, calendar_window],
@@ -357,17 +437,17 @@ def add_event_study_bins(df):
     """
     df = df.copy()
 
-    game_bins = [-999, -21, -11, -6, -1, 0, 5, 10, 20, 999]
+    game_bins = [-33, -25, -17, -9, -1, 0, 8, 16, 24, 32]
     game_labels = [
-        "g_leq_minus_21",
-        "g_minus_20_to_minus_11",
-        "g_minus_10_to_minus_6",
-        "g_minus_5_to_minus_1",
+        "g_minus_32_to_minus_25",
+        "g_minus_24_to_minus_17",
+        "g_minus_16_to_minus_9",
+        "g_minus_8_to_minus_1",
         "g_trade_day",
-        "g_plus_1_to_plus_5",
-        "g_plus_6_to_plus_10",
-        "g_plus_11_to_plus_20",
-        "g_geq_plus_21",
+        "g_plus_1_to_plus_8",
+        "g_plus_9_to_plus_16",
+        "g_plus_17_to_plus_24",
+        "g_plus_25_to_plus_32",
     ]
 
     day_bins = [-999, -57, -43, -29, -15, -1, 0, 14, 28, 42, 56, 999]
@@ -421,6 +501,8 @@ def print_dataset_overview(df):
         "team_abbr": "Team abbreviation",
         "opponent_abbr": "Opponent abbreviation",
         "is_home": "1 if home game, 0 if away",
+        "days_since_last_game": "Days since this team's previous game",
+        "is_back_to_back": "1 if team played on the previous calendar day",
         "win": "1 if win, 0 otherwise",
         "loss": "1 if loss, 0 otherwise",
         "relative_day_num": "Days relative to Luka trade",
@@ -428,12 +510,15 @@ def print_dataset_overview(df):
         "post_trade": "1 if after Luka trade",
         "treated_team": "1 if Dallas Mavericks, 0 if control",
         "did": "treated_team * post_trade",
-        "window_type": "game_symmetric or calendar_symmetric sample",
+        "window_type": "main_game_symmetric or robust_calendar_symmetric sample",
         "point_diff": "Team point differential",
         "luka_injury_flag": "1 if Dallas game is flagged as Luka injury-related",
         "ad_injury_flag": "1 if Dallas game is flagged as AD injury-related",
         "kyrie_injury_flag": "1 if Dallas game is flagged as Kyrie injury-related",
         "any_mavs_star_injury_flag": "1 if Luka, AD, or Kyrie injury flag equals 1",
+        "pre_trade": "1 if before Luka trade",
+        "luka_injury_pre": "1 if Dallas pre-trade game is Luka injury-related",
+        "ad_injury_post": "1 if Dallas post-trade game is AD injury-related",
         "event_bin_game": "Binned game-relative event-study timing",
         "event_bin_day": "Binned calendar-relative event-study timing",
     }
@@ -498,7 +583,8 @@ def create_descriptive_tables_by_window(df):
 def run_did_regression(
     df,
     outcome_var="win",
-    use_controls=False
+    use_controls=False,
+    use_injury_adjustment=False
 ):
     """
     Runs DiD regression with optional controls.
@@ -506,10 +592,15 @@ def run_did_regression(
     Base:
         outcome ~ treated_team + post_trade + did
 
-    Controls:
-        + is_home
-        + luka_injury_flag
-        + opponent fixed effects
+    FE/B2B controls:
+        outcome ~ post_trade + did
+            + is_home
+            + is_back_to_back
+            + opponent fixed effects
+            + team fixed effects
+
+    Injury adjustment:
+        Adds Dallas-specific Luka/AD/Kyrie injury indicators as a sensitivity spec.
 
     Standard errors:
         Clustered by team_abbr
@@ -518,12 +609,23 @@ def run_did_regression(
 
     if use_controls:
         formula = (
-            f"{outcome_var} ~ treated_team + post_trade + did "
-            f"+ is_home + luka_injury_flag + ad_injury_flag + kyrie_injury_flag + C(opponent_abbr)"
+            f"{outcome_var} ~ post_trade + did "
+            f"+ is_home "
+            f"+ is_back_to_back "
+            f"+ C(opponent_abbr) "
+            f"+ C(team_abbr)"
         )
     else:
         formula = (
             f"{outcome_var} ~ treated_team + post_trade + did"
+        )
+
+    # Add Dallas-specific injury controls only for the injury-adjusted sensitivity spec.
+    if use_injury_adjustment:
+        formula += (
+            f" + luka_injury_pre "
+            f" + ad_injury_post "
+            f" + kyrie_injury_flag"
         )
 
     model = smf.ols(
@@ -543,9 +645,9 @@ def run_event_study_regression(df, window_type):
     df = df.copy()
     df = df[df["window_type"] == window_type].copy()
 
-    if window_type == "game_symmetric":
+    if window_type == "main_game_symmetric":
         event_var = "event_bin_game"
-        baseline = "g_minus_5_to_minus_1"
+        baseline = "g_minus_8_to_minus_1"
     else:
         event_var = "event_bin_day"
         baseline = "d_minus_14_to_minus_1"
@@ -566,6 +668,12 @@ def run_event_study_regression(df, window_type):
 
     formula = (
         f"point_diff ~ C({event_var}) * treated_team "
+        f"+ is_home "
+        f"+ is_back_to_back "
+        f"+ luka_injury_pre "
+        f"+ ad_injury_post "
+        f"+ kyrie_injury_flag "
+        f"+ C(opponent_abbr) "
         f"+ C(team_abbr)"
     )
 
@@ -622,17 +730,18 @@ def create_did_results_tables_by_window(df):
         results = []
 
         for outcome_var in ["win", "point_diff"]:
-            for use_controls in [False, True]:
+            for spec in ["no_controls", "with_fe_b2b_controls", "with_injury_adjustment"]:
 
                 model = run_did_regression(
                     window_df,
                     outcome_var=outcome_var,
-                    use_controls=use_controls
+                    use_controls=(spec != "no_controls"),
+                    use_injury_adjustment=(spec == "with_injury_adjustment")
                 )
 
                 results.append({
                     "outcome": outcome_var,
-                    "controls": "with_controls" if use_controls else "no_controls",
+                    "controls": spec,
                     "did_estimate": model.params["did"],
                     "did_std_error": model.bse["did"],
                     "did_t_stat": model.tvalues["did"],
@@ -672,8 +781,8 @@ def create_event_study_summary_tables(df):
     tables = {}
 
     specs = {
-        "calendar_symmetric": "event_bin_day",
-        "game_symmetric": "event_bin_game",
+        "robust_calendar_symmetric": "event_bin_day",
+        "main_game_symmetric": "event_bin_game",
     }
 
     for window_type, event_bin_var in specs.items():
@@ -723,17 +832,17 @@ def get_event_bin_midpoints(window_type):
     Returns numeric midpoint values for event-study bins.
     Used only for cleaner event-study figure x-axes.
     """
-    if window_type == "game_symmetric":
+    if window_type == "main_game_symmetric":
         return {
-            "g_leq_minus_21": -25,
-            "g_minus_20_to_minus_11": -15,
-            "g_minus_10_to_minus_6": -8,
-            "g_minus_5_to_minus_1": -3,
+            "g_minus_32_to_minus_25": -28.5,
+            "g_minus_24_to_minus_17": -20.5,
+            "g_minus_16_to_minus_9": -12.5,
+            "g_minus_8_to_minus_1": -4.5,
             "g_trade_day": 0,
-            "g_plus_1_to_plus_5": 3,
-            "g_plus_6_to_plus_10": 8,
-            "g_plus_11_to_plus_20": 15,
-            "g_geq_plus_21": 25,
+            "g_plus_1_to_plus_8": 4.5,
+            "g_plus_9_to_plus_16": 12.5,
+            "g_plus_17_to_plus_24": 20.5,
+            "g_plus_25_to_plus_32": 28.5,
         }
 
     return {
@@ -754,17 +863,17 @@ def get_event_bin_labels(window_type):
     """
     Returns human-readable labels for event-study bins.
     """
-    if window_type == "game_symmetric":
+    if window_type == "main_game_symmetric":
         return {
-            "g_leq_minus_21": "≤ -21 games",
-            "g_minus_20_to_minus_11": "-20 to -11 games",
-            "g_minus_10_to_minus_6": "-10 to -6 games",
-            "g_minus_5_to_minus_1": "-5 to -1 games",
+            "g_minus_32_to_minus_25": "-32 to -25 games",
+            "g_minus_24_to_minus_17": "-24 to -17 games",
+            "g_minus_16_to_minus_9": "-16 to -9 games",
+            "g_minus_8_to_minus_1": "-8 to -1 games",
             "g_trade_day": "Trade day",
-            "g_plus_1_to_plus_5": "+1 to +5 games",
-            "g_plus_6_to_plus_10": "+6 to +10 games",
-            "g_plus_11_to_plus_20": "+11 to +20 games",
-            "g_geq_plus_21": "≥ +21 games",
+            "g_plus_1_to_plus_8": "+1 to +8 games",
+            "g_plus_9_to_plus_16": "+9 to +16 games",
+            "g_plus_17_to_plus_24": "+17 to +24 games",
+            "g_plus_25_to_plus_32": "+25 to +32 games",
         }
 
     return {
@@ -786,17 +895,17 @@ def get_event_bin_short_labels(window_type):
     Returns simplified labels for event-study plots.
     Labels use the endpoint farthest from the trade date.
     """
-    if window_type == "game_symmetric":
+    if window_type == "main_game_symmetric":
         return {
-            "g_leq_minus_21": "≤-21",
-            "g_minus_20_to_minus_11": "-20",
-            "g_minus_10_to_minus_6": "-10",
-            "g_minus_5_to_minus_1": "-5",
+            "g_minus_32_to_minus_25": "-32",
+            "g_minus_24_to_minus_17": "-24",
+            "g_minus_16_to_minus_9": "-16",
+            "g_minus_8_to_minus_1": "-8",
             "g_trade_day": "0",
-            "g_plus_1_to_plus_5": "+5",
-            "g_plus_6_to_plus_10": "+10",
-            "g_plus_11_to_plus_20": "+20",
-            "g_geq_plus_21": "≥+21",
+            "g_plus_1_to_plus_8": "+8",
+            "g_plus_9_to_plus_16": "+16",
+            "g_plus_17_to_plus_24": "+24",
+            "g_plus_25_to_plus_32": "+32",
         }
 
     return {
@@ -816,8 +925,8 @@ def get_event_bin_short_labels(window_type):
 def create_point_diff_figures_by_window(df):
     """
     Creates point differential scatterplots separately for:
-        calendar_symmetric
-        game_symmetric
+        robust_calendar_symmetric
+        main_game_symmetric
 
     Each graph shows:
         - Dallas observations
@@ -830,15 +939,15 @@ def create_point_diff_figures_by_window(df):
 
         window_df = df[df["window_type"] == window_type].copy()
 
-        if window_type == "calendar_symmetric":
+        if window_type == "robust_calendar_symmetric":
             x_var = "relative_day_num"
             x_label = "Days Relative to Trade"
-            title = "Point Differential Around Trade: Calendar-Symmetric Window"
+            title = "Point Differential Around Trade: Robustness 1 Calendar-Symmetric Window"
 
-        elif window_type == "game_symmetric":
+        elif window_type == "main_game_symmetric":
             x_var = "relative_game_num"
             x_label = "Games Relative to Trade"
-            title = "Point Differential Around Trade: Game-Symmetric Window"
+            title = "Point Differential Around Trade: Main Game-Symmetric Window"
 
         else:
             continue
@@ -897,13 +1006,13 @@ def create_event_study_plots(df):
     Creates event-study coefficient plots for both window types.
     Uses numeric bin midpoints for clean x-axis labels.
     """
-    for window_type in ["game_symmetric", "calendar_symmetric"]:
+    for window_type in ["main_game_symmetric", "robust_calendar_symmetric"]:
 
         model, event_var = run_event_study_regression(df, window_type)
         coef_df = extract_event_study_coefficients(model, event_var)
 
-        if window_type == "game_symmetric":
-            baseline_bin = "g_minus_5_to_minus_1"
+        if window_type == "main_game_symmetric":
+            baseline_bin = "g_minus_8_to_minus_1"
         else:
             baseline_bin = "d_minus_14_to_minus_1"
 
@@ -958,12 +1067,12 @@ def create_event_study_plots(df):
             alpha=0.6
         )
 
-        if window_type == "game_symmetric":
+        if window_type == "main_game_symmetric":
             x_label = "Games Relative to Trade"
-            title = "Event Study: Game-Symmetric Window"
+            title = "Event Study: Main Game-Symmetric Window"
         else:
             x_label = "Days Relative to Trade"
-            title = "Event Study: Calendar-Symmetric Window"
+            title = "Event Study: Robustness 1 Calendar-Symmetric Window"
 
         ax.set_title(
             title + "\nRelative to final pre-trade bin"
@@ -1004,13 +1113,13 @@ def create_event_study_coefficient_tables(df):
     """
     tables = {}
 
-    for window_type in ["game_symmetric", "calendar_symmetric"]:
+    for window_type in ["main_game_symmetric", "robust_calendar_symmetric"]:
 
         model, event_var = run_event_study_regression(df, window_type)
         coef_df = extract_event_study_coefficients(model, event_var)
 
-        if window_type == "game_symmetric":
-            baseline_bin = "g_minus_5_to_minus_1"
+        if window_type == "main_game_symmetric":
+            baseline_bin = "g_minus_8_to_minus_1"
         else:
             baseline_bin = "d_minus_14_to_minus_1"
 
@@ -1054,6 +1163,48 @@ def create_event_study_coefficient_tables(df):
 
     return tables
 
+def run_pretrend_test(df):
+    """
+    Tests whether all pre-treatment event-study coefficients are jointly zero.
+    """
+    print("\n" + "=" * 60)
+    print("PRE-TREND TEST")
+    print("=" * 60)
+
+    for window_type in ["main_game_symmetric", "robust_calendar_symmetric"]:
+
+        model, event_var = run_event_study_regression(df, window_type)
+
+        if window_type == "main_game_symmetric":
+            pre_bins = [
+                "g_minus_32_to_minus_25",
+                "g_minus_24_to_minus_17",
+                "g_minus_16_to_minus_9"
+            ]
+        else:
+            pre_bins = [
+                "d_leq_minus_57",
+                "d_minus_56_to_minus_43",
+                "d_minus_42_to_minus_29",
+                "d_minus_28_to_minus_15"
+            ]
+
+        terms = [
+            f"C({event_var})[T.{b}]:treated_team"
+            for b in pre_bins
+        ]
+
+        hypothesis = " = 0, ".join(terms) + " = 0"
+
+        test = model.f_test(hypothesis)
+
+        print(f"\n--- {window_type} ---")
+        f_stat = float(test.fvalue)
+        p_value = float(test.pvalue)
+
+        print(f"F-stat: {f_stat:.3f}")
+        print(f"p-value: {p_value:.4f}")
+
 
 # ==================================================
 # 12. MAIN
@@ -1074,14 +1225,32 @@ def main():
     analysis_df = build_analysis_windows(df)
     analysis_df = add_event_study_bins(analysis_df)
 
+    analysis_df_no_luka = analysis_df[
+        analysis_df["luka_injury_pre"] == 0
+    ].copy()
+
     print_dataset_overview(analysis_df)
 
     descriptive_tables = create_descriptive_tables_by_window(analysis_df)
     did_results_tables = create_did_results_tables_by_window(analysis_df)
 
+    print("\n===== DID RESULTS (EXCLUDING LUKA INJURY GAMES) =====")
+    did_results_no_luka = create_did_results_tables_by_window(analysis_df_no_luka)
+
+    for window_type, table in did_results_no_luka.items():
+        print(f"\n--- {window_type} (no Luka injury games) ---")
+        print(table)
+
     event_study_summary_tables = create_event_study_summary_tables(analysis_df)
     event_study_coefficient_tables = create_event_study_coefficient_tables(analysis_df)
 
+    run_pretrend_test(analysis_df)
+
+    print("\n===== BIN SAMPLE SIZES =====")
+    for window_type, table in event_study_summary_tables.items():
+        print(f"\n--- {window_type} ---")
+        print(table[["event_bin_label", "group", "games"]])
+    
     create_point_diff_figures_by_window(analysis_df)
     create_event_study_plots(analysis_df)
 
