@@ -1,0 +1,5 @@
+group,period,games,wins,losses,avg_point_diff
+Control,Pre,525,256,269,-0.2723809523809524
+Control,Post,519,259,260,0.16570327552986513
+Treatment (DAL),Pre,32,17,15,1.5625
+Treatment (DAL),Post,32,13,19,-6.1875

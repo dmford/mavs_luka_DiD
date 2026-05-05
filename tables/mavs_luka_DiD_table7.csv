@@ -1,0 +1,21 @@
+event_bin_label,group,games,wins,losses,avg_point_diff
+≤ -57 days,Control,189,93,96,0.010582010582010581
+≤ -57 days,Treatment (DAL),8,7,1,10.75
+-56 to -43 days,Control,133,65,68,-0.08270676691729323
+-56 to -43 days,Treatment (DAL),4,2,2,-2.75
+-42 to -29 days,Control,185,93,92,-0.06486486486486487
+-42 to -29 days,Treatment (DAL),7,2,5,-1.4285714285714286
+-28 to -15 days,Control,190,96,94,0.2736842105263158
+-28 to -15 days,Treatment (DAL),7,3,4,-1.8571428571428572
+-14 to -1 days,Control,191,94,97,-0.4083769633507853
+-14 to -1 days,Treatment (DAL),7,3,4,-1.0
++1 to +14 days,Control,167,81,86,-0.4251497005988024
++1 to +14 days,Treatment (DAL),6,4,2,4.0
++15 to +28 days,Control,164,80,84,-0.1402439024390244
++15 to +28 days,Treatment (DAL),5,2,3,-6.4
++29 to +42 days,Control,205,106,99,0.6048780487804878
++29 to +42 days,Treatment (DAL),8,1,7,-15.25
++43 to +56 days,Control,196,97,99,0.11224489795918367
++43 to +56 days,Treatment (DAL),6,4,2,2.6666666666666665
+≥ +57 days,Control,211,106,105,0.1895734597156398
+≥ +57 days,Treatment (DAL),7,2,5,-12.0
