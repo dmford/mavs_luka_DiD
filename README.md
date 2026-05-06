@@ -25,4 +25,4 @@ python mavs_luka_DiD.py
 - Results are not intended as definitive causal claims
 
 ## Author
-David Ford
+David Ford, assisted by ChatGPT
