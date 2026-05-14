@@ -109,3 +109,7 @@ Representative output files include:
 
 ```bash
 python mavs_luka_DiD.py
+```
+
+## Author
+David Ford, assisted by ChatGPT
