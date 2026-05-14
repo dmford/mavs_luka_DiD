@@ -113,6 +113,37 @@ KYRIE_MAVS_MISSED_INJURY_DATES = [
     "2025-04-13",
 ]
 
+# --------------------------------------------------
+# LAKERS ANALYSIS INJURY FLAGS
+# --------------------------------------------------
+
+LEBRON_LAKERS_MISSED_INJURY_DATES = [
+    "2024-12-08",
+    "2025-01-28",
+    "2025-01-30",
+    "2025-02-01",
+    "2025-02-04",
+    "2025-02-06",
+    "2025-03-10",
+    "2025-03-13",
+    "2025-03-14",
+    "2025-03-19",
+]
+
+AD_LAKERS_PRETRADE_MISSED_DATES = [
+    "2024-11-06",
+    "2025-01-02",
+    "2025-01-17",
+    "2025-01-30",
+    "2025-02-01",
+]
+
+LUKA_LAKERS_POSTTRADE_MISSED_DATES = [
+    "2025-02-04",
+    "2025-02-06",
+    "2025-02-08",
+]
+
 
 # ==================================================
 # 1. OUTPUT DIRECTORY SETUP
@@ -359,6 +390,65 @@ def assign_treatment_control(df):
 
     df["luka_injury_pre"] = df["luka_injury_flag"] * df["pre_trade"]
     df["ad_injury_post"] = df["ad_injury_flag"] * df["post_trade"]
+
+    df["did"] = df["treated_team"] * df["post_trade"]
+
+    return df
+
+def assign_treatment_control_lakers(df):
+    """
+    Lakers = treated.
+
+    Mavericks are excluded because AD left the Lakers for Dallas,
+    contaminating Dallas as a control group.
+    """
+    df = df.copy()
+
+    # Exclude Dallas from control pool
+    df = df[~df["team_abbr"].isin(["DAL"])].copy()
+
+    df["treated_team"] = (df["team_abbr"] == "LAL").astype(int)
+
+    # --------------------------------------------------
+    # INJURY FLAGS
+    # --------------------------------------------------
+
+    lebron_injury_dates = pd.to_datetime(
+        LEBRON_LAKERS_MISSED_INJURY_DATES
+    )
+
+    ad_pretrade_dates = pd.to_datetime(
+        AD_LAKERS_PRETRADE_MISSED_DATES
+    )
+
+    luka_posttrade_dates = pd.to_datetime(
+        LUKA_LAKERS_POSTTRADE_MISSED_DATES
+    )
+
+    df["lebron_injury_flag"] = (
+        (df["team_abbr"] == "LAL")
+        & (df["game_date"].isin(lebron_injury_dates))
+    ).astype(int)
+
+    df["ad_pretrade_flag"] = (
+        (df["team_abbr"] == "LAL")
+        & (df["game_date"].isin(ad_pretrade_dates))
+    ).astype(int)
+
+    df["luka_posttrade_flag"] = (
+        (df["team_abbr"] == "LAL")
+        & (df["game_date"].isin(luka_posttrade_dates))
+    ).astype(int)
+
+    df["pre_trade"] = 1 - df["post_trade"]
+
+    df["ad_injury_pre"] = (
+        df["ad_pretrade_flag"] * df["pre_trade"]
+    )
+
+    df["luka_injury_post"] = (
+        df["luka_posttrade_flag"] * df["post_trade"]
+    )
 
     df["did"] = df["treated_team"] * df["post_trade"]
 
@@ -622,11 +712,24 @@ def run_did_regression(
 
     # Add Dallas-specific injury controls only for the injury-adjusted sensitivity spec.
     if use_injury_adjustment:
-        formula += (
-            f" + luka_injury_pre "
-            f" + ad_injury_post "
-            f" + kyrie_injury_flag"
-        )
+
+        # Mavericks specification
+        if "luka_injury_pre" in df.columns:
+
+            formula += (
+                f" + luka_injury_pre "
+                f" + ad_injury_post "
+                f" + kyrie_injury_flag"
+            )
+
+        # Lakers specification
+        elif "ad_injury_pre" in df.columns:
+
+            formula += (
+                f" + ad_injury_pre "
+                f" + luka_injury_post "
+                f" + lebron_injury_flag"
+            )
 
     model = smf.ols(
         formula=formula,
@@ -666,13 +769,51 @@ def run_event_study_regression(df, window_type):
         ordered=True
     )
 
+    # Drop rows with missing event-study bins before fitting the model.
+    # This keeps the regression dataframe and clustered-SE groups aligned.
+    df = df.dropna(
+        subset=[
+            event_var,
+            "point_diff",
+            "treated_team",
+            "is_home",
+            "is_back_to_back",
+            "opponent_abbr",
+            "team_abbr",
+        ]
+    ).copy()
+
     formula = (
         f"point_diff ~ C({event_var}) * treated_team "
         f"+ is_home "
         f"+ is_back_to_back "
-        f"+ luka_injury_pre "
-        f"+ ad_injury_post "
-        f"+ kyrie_injury_flag "
+    )
+
+    # --------------------------------------------------
+    # Mavericks injury controls
+    # --------------------------------------------------
+
+    if "luka_injury_pre" in df.columns:
+
+        formula += (
+            f"+ luka_injury_pre "
+            f"+ ad_injury_post "
+            f"+ kyrie_injury_flag "
+        )
+
+    # --------------------------------------------------
+    # Lakers injury controls
+    # --------------------------------------------------
+
+    elif "ad_injury_pre" in df.columns:
+
+        formula += (
+            f"+ ad_injury_pre "
+            f"+ luka_injury_post "
+            f"+ lebron_injury_flag "
+        )
+
+    formula += (
         f"+ C(opponent_abbr) "
         f"+ C(team_abbr)"
     )
@@ -966,13 +1107,28 @@ def create_point_diff_figures_by_window(df):
             label="Control teams"
         )
 
-        # Dallas Mavericks (team blue)
+        # Treatment team points
+        if treatment_df["team_abbr"].iloc[0] == "DAL":
+
+            treatment_color = "#00538C"
+            treatment_label = "Dallas Mavericks"
+
+        elif treatment_df["team_abbr"].iloc[0] == "LAL":
+
+            treatment_color = "#552583"
+            treatment_label = "Los Angeles Lakers"
+
+        else:
+
+            treatment_color = "black"
+            treatment_label = "Treatment Team"
+
         ax.scatter(
             treatment_df[x_var],
             treatment_df["point_diff"],
             alpha=0.9,
-            color="#00538C",  # Mavericks blue
-            label="Dallas Mavericks"
+            color=treatment_color,
+            label=treatment_label
         )
 
         ax.axhline(
@@ -1218,8 +1374,9 @@ def main():
     raw_df = get_regular_season_games(season="2024-25")
     df = clean_game_data(raw_df)
 
-    df = prepare_dates(df)
-    df = assign_treatment_control(df)
+    base_df = prepare_dates(df)
+
+    df = assign_treatment_control(base_df.copy())
     df = add_relative_game_num(df, treated_team="DAL")
 
     analysis_df = build_analysis_windows(df)
@@ -1274,6 +1431,48 @@ def main():
         print(f"\n--- {window_type} ---")
         print(table)
 
+    # ==================================================
+    # LAKERS ANALYSIS
+    # ==================================================
+
+    print("\n" + "=" * 60)
+    print("RUNNING LAKERS ANALYSIS")
+    print("=" * 60)
+
+    lakers_df = base_df.copy()
+
+    lakers_df = assign_treatment_control_lakers(lakers_df)
+
+    lakers_df = add_relative_game_num(
+        lakers_df,
+        treated_team="LAL"
+    )
+
+    lakers_analysis_df = build_analysis_windows(lakers_df)
+
+    lakers_analysis_df = add_event_study_bins(
+        lakers_analysis_df
+    )
+
+    create_point_diff_figures_by_window(
+        lakers_analysis_df
+    )
+
+    lakers_did_tables = create_did_results_tables_by_window(
+        lakers_analysis_df
+    )
+
+    print("\n===== LAKERS DID RESULTS =====")
+
+    for window_type, table in lakers_did_tables.items():
+
+        print(f"\n--- {window_type} ---")
+        print(table)
+
+    create_event_study_plots(lakers_analysis_df)
+
+    run_pretrend_test(lakers_analysis_df)
+    
     plt.show()
 
 if __name__ == "__main__":
