@@ -14,6 +14,7 @@ The script pulls 2024-25 NBA regular-season game logs using `nba_api`, then comp
 
 Two mirrored analyses are run:
 
+<<<<<<< HEAD
 1. **Dallas Mavericks analysis**
    - Treated team: Dallas Mavericks
    - Excluded from controls: Los Angeles Lakers
@@ -36,6 +37,32 @@ The preferred specifications include:
 - Opponent fixed effects
 - Team fixed effects
 - Star-player injury controls
+=======
+### Dallas Mavericks Analysis
+
+* Treated team: Dallas Mavericks
+* Excluded from controls: Los Angeles Lakers
+* Injury controls: Luka Doncic pre-trade, Anthony Davis post-trade, Kyrie Irving throughout
+
+### Los Angeles Lakers Analysis
+
+* Treated team: Los Angeles Lakers
+* Excluded from controls: Dallas Mavericks
+* Injury controls: Anthony Davis pre-trade, Luka Doncic post-trade, LeBron James throughout
+
+The main outcomes are:
+
+* Win indicator
+* Point differential
+
+The preferred specifications include:
+
+* Home/away control
+* Back-to-back indicator
+* Opponent fixed effects
+* Team fixed effects
+* Star-player injury controls
+>>>>>>> 38ff39b (Improve README formatting and transparency statement)
 
 ## Key Results
 
@@ -45,6 +72,7 @@ The results are directionally consistent with the trade hurting Dallas and helpi
 
 In the main game-symmetric window, the injury-adjusted specification estimates that Dallas declined by roughly:
 
+<<<<<<< HEAD
 - **24.4 percentage points in win probability**
 - **13.4 points of point differential**
 
@@ -56,11 +84,25 @@ In the main game-symmetric window, the injury-adjusted specification estimates t
 | Point differential | No controls | -8.188 | 1.329 | <0.001 |
 | Point differential | FE + B2B controls | -9.437 | 1.217 | <0.001 |
 | Point differential | Injury-adjusted | -13.447 | 1.460 | <0.001 |
+=======
+* 24.4 percentage points in win probability
+* 13.4 points of point differential
+
+| Outcome            |     Specification | DiD Estimate | Std. Error | p-value |
+| ------------------ | ----------------: | -----------: | ---------: | ------: |
+| Win                |       No controls |       -0.136 |      0.033 | 0.00003 |
+| Win                | FE + B2B controls |       -0.141 |      0.034 | 0.00004 |
+| Win                |   Injury-adjusted |       -0.244 |      0.044 |  <0.001 |
+| Point differential |       No controls |       -8.188 |      1.329 |  <0.001 |
+| Point differential | FE + B2B controls |       -9.437 |      1.217 |  <0.001 |
+| Point differential |   Injury-adjusted |      -13.447 |      1.460 |  <0.001 |
+>>>>>>> 38ff39b (Improve README formatting and transparency statement)
 
 ### Los Angeles Lakers
 
 In the main game-symmetric window, the injury-adjusted specification estimates that Los Angeles improved by roughly:
 
+<<<<<<< HEAD
 - **15.1 percentage points in win probability**
 - **5.8 points of point differential**
 
@@ -72,6 +114,19 @@ In the main game-symmetric window, the injury-adjusted specification estimates t
 | Point differential | No controls | 3.289 | 1.044 | 0.002 |
 | Point differential | FE + B2B controls | 5.388 | 1.078 | <0.001 |
 | Point differential | Injury-adjusted | 5.763 | 1.158 | <0.001 |
+=======
+* 15.1 percentage points in win probability
+* 5.8 points of point differential
+
+| Outcome            |     Specification | DiD Estimate | Std. Error | p-value |
+| ------------------ | ----------------: | -----------: | ---------: | ------: |
+| Win                |       No controls |        0.055 |      0.031 |   0.074 |
+| Win                | FE + B2B controls |        0.132 |      0.036 |  <0.001 |
+| Win                |   Injury-adjusted |        0.151 |      0.040 |  <0.001 |
+| Point differential |       No controls |        3.289 |      1.044 |   0.002 |
+| Point differential | FE + B2B controls |        5.388 |      1.078 |  <0.001 |
+| Point differential |   Injury-adjusted |        5.763 |      1.158 |  <0.001 |
+>>>>>>> 38ff39b (Improve README formatting and transparency statement)
 
 ## Example Figures
 
@@ -95,6 +150,7 @@ The results are still useful as an exploratory analysis: Dallas appears to worse
 
 The script automatically creates:
 
+<<<<<<< HEAD
 - Regression tables in `./tables/`
 - Figures in `./figures/`
 
@@ -107,9 +163,38 @@ Representative output files include:
 
 ## How to Run
 
+=======
+* Regression tables in `./tables/`
+* Figures in `./figures/`
+
+Representative output files include:
+
+* `tables/mavs_luka_DiD_table3.csv` — Dallas main DiD results
+* `tables/mavs_luka_DiD_table11.csv` — Lakers main DiD results
+* `figures/mavs_luka_DiD_figure1.png` — Dallas point differential plot
+* `figures/mavs_luka_DiD_figure5.png` — Lakers point differential plot
+
+## How to Run
+
+Install the main dependencies:
+
+```bash
+pip install pandas statsmodels matplotlib nba_api
+```
+
+Then run:
+
+>>>>>>> 38ff39b (Improve README formatting and transparency statement)
 ```bash
 python mavs_luka_DiD.py
 ```
 
 ## Author
+<<<<<<< HEAD
 David Ford, assisted by ChatGPT
+=======
+
+David Ford
+
+This project was developed by David Ford with assistance from ChatGPT for code scaffolding, debugging, documentation, and workflow planning. All project design choices, interpretation, review, and final repository contents are my responsibility.
+>>>>>>> 38ff39b (Improve README formatting and transparency statement)
