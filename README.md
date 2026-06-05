@@ -1,85 +1,83 @@
-# NBA Trade Impact Analysis: Luka Doncic and Anthony Davis
+# Difference-in-Differences Analysis of the Luka Dončić / Anthony Davis Trade
 
-## Overview
+This project uses observational NBA game data and quasi-experimental econometric methods to evaluate the impact of the February 2025 Luka Dončić / Anthony Davis trade on team performance.
 
-This project uses Python to conduct a simplified Difference-in-Differences-style analysis of the February 2025 Luka Doncic / Anthony Davis trade.
+Using a mirrored Difference-in-Differences framework, the analysis examines whether the Dallas Mavericks declined after trading Dončić and whether the Los Angeles Lakers improved after acquiring him.
 
-The main question is whether the Dallas Mavericks performed worse after trading Luka Doncic, and whether the Los Angeles Lakers show a mirrored improvement after acquiring him.
-
-This is a learning-focused portfolio project designed to demonstrate data collection, cleaning, regression modeling, robustness checks, and visualization in Python.
+The project was developed as an applied causal inference exercise in Python and focuses on research design, model specification, robustness checks, and interpretation rather than prediction.
 
 ## Research Question
 
-How did the February 2025 Luka Doncic / Anthony Davis trade affect the performance of the Dallas Mavericks and Los Angeles Lakers?
+How did the February 2025 Luka Dončić / Anthony Davis trade affect the performance of the Dallas Mavericks and Los Angeles Lakers?
 
-The project uses a Difference-in-Differences-style framework to compare team performance before and after the trade while controlling for schedule effects, opponent quality, team fixed effects, and player availability.
+The project uses a Difference-in-Differences framework to compare team performance before and after the trade while controlling for opponent quality, schedule effects, team fixed effects, and player availability.
 
-## Research Design
+## Methodology
 
-The script pulls 2024-25 NBA regular-season game logs using `nba_api`, then compares team performance before and after the February 2, 2025 trade date.
+The analysis uses publicly available NBA game logs obtained through `nba_api`.
 
-Two mirrored analyses are run:
+Key empirical approaches include:
+
+* Difference-in-Differences estimation
+* Fixed effects modeling
+* Observational data analysis
+* Event-window robustness checks
+* Injury-adjusted specifications
+
+Two mirrored analyses are performed:
 
 ### Dallas Mavericks Analysis
 
-- Treated team: Dallas Mavericks
-- Excluded from controls: Los Angeles Lakers
-- Injury controls: Luka Doncic pre-trade, Anthony Davis post-trade, Kyrie Irving throughout
+* Treated team: Dallas Mavericks
+* Excluded from controls: Los Angeles Lakers
+* Injury controls: Luka Dončić pre-trade, Anthony Davis post-trade, Kyrie Irving throughout
 
 ### Los Angeles Lakers Analysis
 
-- Treated team: Los Angeles Lakers
-- Excluded from controls: Dallas Mavericks
-- Injury controls: Anthony Davis pre-trade, Luka Doncic post-trade, LeBron James throughout
+* Treated team: Los Angeles Lakers
+* Excluded from controls: Dallas Mavericks
+* Injury controls: Anthony Davis pre-trade, Luka Dončić post-trade, LeBron James throughout
 
-The main outcomes are:
+Primary outcomes include:
 
-- Win indicator
-- Point differential
+* Win probability
+* Point differential
 
-The preferred specifications include:
+Preferred specifications include:
 
-- Home/away control
-- Back-to-back indicator
-- Opponent fixed effects
-- Team fixed effects
-- Star-player injury controls
+* Home/away controls
+* Back-to-back indicators
+* Opponent fixed effects
+* Team fixed effects
+* Star-player injury controls
 
-## Key Results
+## Main Findings
 
-The results are directionally consistent with the trade hurting Dallas and helping Los Angeles.
+Results are directionally consistent with the trade harming Dallas and benefiting Los Angeles.
 
 ### Dallas Mavericks
 
-In the main game-symmetric window, the injury-adjusted specification estimates that Dallas declined by roughly:
+The injury-adjusted specification estimates declines of approximately:
 
-- 24.4 percentage points in win probability
-- 13.4 points of point differential
-
-| Outcome | Specification | DiD Estimate | Std. Error | p-value |
-|---|---:|---:|---:|---:|
-| Win | No controls | -0.136 | 0.033 | 0.00003 |
-| Win | FE + B2B controls | -0.141 | 0.034 | 0.00004 |
-| Win | Injury-adjusted | -0.244 | 0.044 | <0.001 |
-| Point differential | No controls | -8.188 | 1.329 | <0.001 |
-| Point differential | FE + B2B controls | -9.437 | 1.217 | <0.001 |
-| Point differential | Injury-adjusted | -13.447 | 1.460 | <0.001 |
+* 24.4 percentage points in win probability
+* 13.4 points of point differential
 
 ### Los Angeles Lakers
 
-In the main game-symmetric window, the injury-adjusted specification estimates that Los Angeles improved by roughly:
+The injury-adjusted specification estimates improvements of approximately:
 
-- 15.1 percentage points in win probability
-- 5.8 points of point differential
+* 15.1 percentage points in win probability
+* 5.8 points of point differential
 
-| Outcome | Specification | DiD Estimate | Std. Error | p-value |
-|---|---:|---:|---:|---:|
-| Win | No controls | 0.055 | 0.031 | 0.074 |
-| Win | FE + B2B controls | 0.132 | 0.036 | <0.001 |
-| Win | Injury-adjusted | 0.151 | 0.040 | <0.001 |
-| Point differential | No controls | 3.289 | 1.044 | 0.002 |
-| Point differential | FE + B2B controls | 5.388 | 1.078 | <0.001 |
-| Point differential | Injury-adjusted | 5.763 | 1.158 | <0.001 |
+The mirrored nature of the results provides evidence consistent with a substantial performance shift following the trade.
+
+## Important Caveat
+
+This project should be interpreted as a descriptive empirical exercise rather than a definitive causal estimate.
+
+Event-study pre-trend tests reject parallel pre-trends in both the Mavericks and Lakers analyses, indicating that the identifying assumptions required for a clean causal Difference-in-Differences interpretation are not fully satisfied.
+
+The project therefore serves primarily as an applied causal inference and research-design exercise using observational data.
 
 ## Example Figures
 
@@ -91,37 +89,35 @@ In the main game-symmetric window, the injury-adjusted specification estimates t
 
 ![Lakers point differential around trade](figures/mavs_luka_DiD_figure5.png)
 
-## Important Caveat
-
-This project should be interpreted as a descriptive empirical exercise, not a definitive causal estimate.
-
-The event-study pre-trend tests reject parallel pre-trends for both the Mavericks and Lakers analyses, meaning the identifying assumptions for a clean causal Difference-in-Differences design are not fully satisfied.
-
-The results are still useful as an exploratory analysis: Dallas appears to worsen after the trade, while the Lakers appear to improve, producing a directionally mirrored pattern.
-
 ## Outputs
 
-The script automatically creates:
+The script automatically generates:
 
-- Regression tables in `./tables/`
-- Figures in `./figures/`
+* Regression tables
+* Event-study visualizations
+* Difference-in-Differences estimates
+* Robustness checks
 
-Representative output files include:
+Representative outputs include:
 
-- `tables/mavs_luka_DiD_table3.csv` - Dallas main DiD results
-- `tables/mavs_luka_DiD_table11.csv` - Lakers main DiD results
-- `figures/mavs_luka_DiD_figure1.png` - Dallas point differential plot
-- `figures/mavs_luka_DiD_figure5.png` - Lakers point differential plot
+* `tables/mavs_luka_DiD_table3.csv`
+* `tables/mavs_luka_DiD_table11.csv`
+* `figures/mavs_luka_DiD_figure1.png`
+* `figures/mavs_luka_DiD_figure5.png`
 
 ## How to Run
 
-Install the main dependencies:
+Install dependencies:
 
-    pip install pandas statsmodels matplotlib nba_api
+```bash
+pip install pandas statsmodels matplotlib nba_api
+```
 
-Then run:
+Run the analysis:
 
-    python mavs_luka_DiD.py
+```bash
+python mavs_luka_DiD.py
+```
 
 ## Author
 
